@@ -1,0 +1,62 @@
+bundleIds: [com.apple.dt.Xcode]
+args: one
+
+captureArguments:
+  appleScript: |
+    tell application id {{bundleId}}
+        try
+            set workspaceDocument to document of window id {{windowID}}
+            if class of workspaceDocument is not workspace document then return {}
+            set workspacePath to path of workspaceDocument
+            return {POSIX path of workspacePath}
+        on error
+            return {}
+        end try
+    end tell
+
+resolveWindow:
+  appleScript: |
+    set targetPath to {{arg}}
+    set candidateIDs to {{candidatesWindowIDs}}
+    
+    if targetPath is "" then return missing value
+    
+    tell application id {{bundleId}}
+        repeat with candidateIDRef in candidateIDs
+            set candidateID to (contents of candidateIDRef) as integer
+            try
+                set workspaceDocument to document of window id candidateID
+                if class of workspaceDocument is workspace document then
+                    set workspacePath to path of workspaceDocument
+                    if (POSIX path of workspacePath) is targetPath then return candidateID
+                end if
+            end try
+        end repeat
+    end tell
+    
+    return missing value
+
+launchApplication:
+  shell: |
+    targetArgs={{args}}
+    open -b {{bundleId}} "${targetArgs[@]}"
+
+openNewWindow:
+  appleScript: |
+    tell application id {{bundleId}}
+        set targetPath to {{arg}}
+        if length of targetPath > 0 then
+            try
+                open (POSIX file targetPath)
+            end try
+        else
+            try
+                make new document
+            on error
+                try
+                    make new window
+                end try
+            end try
+        end if
+    end tell
+

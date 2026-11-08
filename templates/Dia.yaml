@@ -1,0 +1,137 @@
+bundleIds: [company.thebrowser.dia]
+args: many
+
+captureArguments:
+  appleScript: |
+    tell application id {{bundleId}}
+        set tabURLs to {}
+        repeat with browserTab in tabs of window id {{windowID}}
+            set tabURL to URL of browserTab
+            if tabURL is not missing value then set end of tabURLs to tabURL
+        end repeat
+        return tabURLs
+    end tell
+
+resolveWindow:
+  appleScript: |
+    use framework "Foundation"
+    
+    property ca : current application
+    
+    on normalizedHost(rawURL)
+        set value to rawURL as text
+        if value does not contain "://" then set value to "https://" & value
+        set parsedURL to ca's NSURL's URLWithString:value
+        if parsedURL is missing value then return ""
+        set valueHost to parsedURL's host()
+        if valueHost is missing value then return ""
+        set lowerHost to valueHost's lowercaseString()
+        return lowerHost as text
+    end normalizedHost
+    
+    on containsAll(targetHosts, liveHosts)
+        repeat with targetRef in targetHosts
+            if (contents of targetRef) is not in liveHosts then return false
+        end repeat
+        return true
+    end containsAll
+    
+    set targetHosts to {}
+    repeat with targetRef in {{args}}
+        set targetHost to my normalizedHost(contents of targetRef)
+        if targetHost is not "" then set end of targetHosts to targetHost
+    end repeat
+    
+    if (count of targetHosts) is 0 then return missing value
+    
+    set candidateIDs to {{candidatesWindowIDs}}
+    
+    tell application id {{bundleId}}
+        repeat with candidateIDRef in candidateIDs
+            set candidateID to (contents of candidateIDRef) as integer
+            try
+                set candidateWindow to window id candidateID
+                set liveHosts to {}
+    
+                repeat with browserTab in tabs of candidateWindow
+                    set tabURL to URL of browserTab
+                    if tabURL is not missing value then
+                        set tabHost to my normalizedHost(tabURL)
+                        if tabHost is not "" then set end of liveHosts to tabHost
+                    end if
+                end repeat
+    
+                if my containsAll(targetHosts, liveHosts) then return candidateID
+            end try
+        end repeat
+    end tell
+    
+    return missing value
+
+launchApplication:
+  appleScript: |
+    tell application id {{bundleId}}
+        activate
+        delay 1
+        repeat with attempt from 1 to 30
+            if (count of windows) > 0 then exit repeat
+            delay 0.1
+        end repeat
+        if (count of windows) = 0 then error "Browser did not open a window." number -1728
+        set targetWindow to front window
+        set existingURLs to URL of every tab of targetWindow
+        set missingURLs to my missingTabURLs({{args}}, existingURLs)
+        repeat with targetURL in missingURLs
+            tell targetWindow to make new tab at end of tabs with properties {URL:(contents of targetURL)}
+        end repeat
+    end tell
+    
+    on missingTabURLs(targetURLs, existingURLs)
+        set knownURLs to existingURLs & {}
+        set pendingURLs to {}
+        considering case
+            repeat with targetURL in targetURLs
+                set candidateURL to contents of targetURL
+                if candidateURL is not in knownURLs then
+                    set end of pendingURLs to candidateURL
+                    set end of knownURLs to candidateURL
+                end if
+            end repeat
+        end considering
+        return pendingURLs
+    end missingTabURLs
+
+openNewWindow:
+  appleScript: |
+    tell application id {{bundleId}}
+        activate
+        make new window
+        delay 1
+        repeat with attempt from 1 to 30
+            if (count of windows) > 0 then exit repeat
+            delay 0.1
+        end repeat
+        if (count of windows) = 0 then error "Browser did not open a window." number -1728
+        set targetWindow to front window
+        set existingURLs to URL of every tab of targetWindow
+        set missingURLs to my missingTabURLs({{args}}, existingURLs)
+        repeat with targetURL in missingURLs
+            tell targetWindow to make new tab at end of tabs with properties {URL:(contents of targetURL)}
+        end repeat
+    end tell
+    
+    on missingTabURLs(targetURLs, existingURLs)
+        set knownURLs to existingURLs & {}
+        set pendingURLs to {}
+        considering case
+            repeat with targetURL in targetURLs
+                set candidateURL to contents of targetURL
+                if candidateURL is not in knownURLs then
+                    set end of pendingURLs to candidateURL
+                    set end of knownURLs to candidateURL
+                end if
+            end repeat
+        end considering
+        return pendingURLs
+    end missingTabURLs
+

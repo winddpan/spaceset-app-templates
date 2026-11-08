@@ -1,0 +1,106 @@
+bundleIds: [com.apple.Safari]
+args: many
+
+captureArguments:
+  appleScript: |
+    tell application id {{bundleId}}
+        set tabURLs to {}
+        repeat with browserTab in tabs of window id {{windowID}}
+            set tabURL to URL of browserTab
+            if tabURL is not missing value then set end of tabURLs to tabURL
+        end repeat
+        return tabURLs
+    end tell
+
+resolveWindow:
+  appleScript: |
+    use framework "Foundation"
+    
+    property ca : current application
+    
+    on normalizedHost(rawURL)
+        set value to rawURL as text
+        if value does not contain "://" then set value to "https://" & value
+        set parsedURL to ca's NSURL's URLWithString:value
+        if parsedURL is missing value then return ""
+        set valueHost to parsedURL's host()
+        if valueHost is missing value then return ""
+        set lowerHost to valueHost's lowercaseString()
+        return lowerHost as text
+    end normalizedHost
+    
+    on containsAll(targetHosts, liveHosts)
+        repeat with targetRef in targetHosts
+            if (contents of targetRef) is not in liveHosts then return false
+        end repeat
+        return true
+    end containsAll
+    
+    set targetHosts to {}
+    repeat with targetRef in {{args}}
+        set targetHost to my normalizedHost(contents of targetRef)
+        if targetHost is not "" then set end of targetHosts to targetHost
+    end repeat
+    
+    if (count of targetHosts) is 0 then return missing value
+    
+    set candidateIDs to {{candidatesWindowIDs}}
+    
+    tell application id {{bundleId}}
+        repeat with candidateIDRef in candidateIDs
+            set candidateID to (contents of candidateIDRef) as integer
+            try
+                set candidateWindow to window id candidateID
+                set liveHosts to {}
+    
+                repeat with browserTab in tabs of candidateWindow
+                    set tabURL to URL of browserTab
+                    if tabURL is not missing value then
+                        set tabHost to my normalizedHost(tabURL)
+                        if tabHost is not "" then set end of liveHosts to tabHost
+                    end if
+                end repeat
+    
+                if my containsAll(targetHosts, liveHosts) then return candidateID
+            end try
+        end repeat
+    end tell
+    
+    return missing value
+
+launchApplication:
+  appleScript: |
+    tell application id {{bundleId}}
+        launch
+        set targetURLs to {{args}}
+        if (count of targetURLs) > 0 then
+            make new document with properties {URL:(item 1 of targetURLs)}
+            tell front window
+                repeat with tabIndex from 2 to count of targetURLs
+                    make new tab at end of tabs with properties {URL:(item tabIndex of targetURLs)}
+                end repeat
+            end tell
+        else
+            make new document
+        end if
+        activate
+    end tell
+
+openNewWindow:
+  appleScript: |
+    tell application id {{bundleId}}
+        launch
+        set targetURLs to {{args}}
+        if (count of targetURLs) > 0 then
+            make new document with properties {URL:(item 1 of targetURLs)}
+            tell front window
+                repeat with tabIndex from 2 to count of targetURLs
+                    make new tab at end of tabs with properties {URL:(item tabIndex of targetURLs)}
+                end repeat
+            end tell
+        else
+            make new document
+        end if
+        activate
+    end tell
+

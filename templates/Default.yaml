@@ -1,0 +1,18 @@
+bundleIds: ["*"]
+args: none
+
+captureArguments:
+  appleScript: |
+    return {}
+
+resolveWindow:
+  appleScript: |
+    return missing value
+
+launchApplication:
+  shell: |
+    targetArgs={{args}}
+    open -b {{bundleId}} "${targetArgs[@]}"
+
+openNewWindow: reuseExisting
+

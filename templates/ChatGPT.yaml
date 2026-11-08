@@ -1,0 +1,17 @@
+bundleIds: [com.openai.codex]
+args: none
+
+captureArguments:
+  appleScript: |
+    return {}
+
+resolveWindow:
+  appleScript: |
+    return missing value
+
+launchApplication:
+  shell: |
+    open -b {{bundleId}}
+
+openNewWindow: reuseExisting
+

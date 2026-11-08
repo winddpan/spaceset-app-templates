@@ -1,0 +1,23 @@
+bundleIds: [com.mitchellh.ghostty]
+args: none
+
+captureArguments:
+  appleScript: |
+    return {}
+
+resolveWindow:
+  appleScript: |
+    return missing value
+
+launchApplication:
+  shell: |
+    open -b {{bundleId}}
+
+openNewWindow:
+  appleScript: |
+    tell application id {{bundleId}}
+        try
+            new window
+        end try
+    end tell
+

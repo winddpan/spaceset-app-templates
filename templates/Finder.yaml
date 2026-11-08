@@ -1,0 +1,53 @@
+bundleIds: [com.apple.finder]
+args: one
+
+captureArguments:
+  appleScript: |
+    tell application id {{bundleId}}
+        try
+            set finderTarget to target of Finder window id {{windowID}}
+            return {POSIX path of (finderTarget as alias)}
+        on error
+            return {}
+        end try
+    end tell
+
+resolveWindow:
+  appleScript: |
+    set targetPath to {{arg}}
+    set candidateIDs to {{candidatesWindowIDs}}
+    
+    if targetPath is "" then return missing value
+    
+    tell application id {{bundleId}}
+        repeat with candidateIDRef in candidateIDs
+            set candidateID to (contents of candidateIDRef) as integer
+            try
+                set finderTarget to target of Finder window id candidateID
+                set candidatePath to POSIX path of (finderTarget as alias)
+                if candidatePath is targetPath then return candidateID
+            end try
+        end repeat
+    end tell
+    
+    return missing value
+
+launchApplication:
+  shell: |
+    targetArgs={{args}}
+    open -b {{bundleId}} "${targetArgs[@]}"
+
+openNewWindow:
+  appleScript: |
+    tell application id {{bundleId}}
+        set targetPath to {{arg}}
+        if length of targetPath > 0 then
+            set targetFolder to POSIX file targetPath as alias
+            set newWindow to make new Finder window to targetFolder
+        else
+            set newWindow to make new Finder window
+        end if
+        set toolbar visible of newWindow to true
+        activate
+    end tell
+

@@ -1,0 +1,21 @@
+bundleIds: [com.apple.Terminal]
+args: none
+
+captureArguments:
+  appleScript: |
+    return {}
+
+resolveWindow:
+  appleScript: |
+    return missing value
+
+launchApplication:
+  shell: |
+    open -b {{bundleId}}
+
+openNewWindow:
+  appleScript: |
+    tell application id {{bundleId}}
+        do script ""
+    end tell
+

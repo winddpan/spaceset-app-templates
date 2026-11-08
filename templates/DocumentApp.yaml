@@ -1,0 +1,62 @@
+bundleIds:
+  - com.apple.TextEdit
+  - com.apple.Preview
+  - com.coteditor.CotEditor
+  - com.microsoft.Word
+args: one
+
+captureArguments:
+  appleScript: |
+    tell application id {{bundleId}}
+        try
+            set documentPath to path of document of window id {{windowID}}
+            return {POSIX path of documentPath}
+        on error
+            return {}
+        end try
+    end tell
+
+resolveWindow:
+  appleScript: |
+    set targetPath to {{arg}}
+    set candidateIDs to {{candidatesWindowIDs}}
+    
+    if targetPath is "" then return missing value
+    
+    tell application id {{bundleId}}
+        repeat with candidateIDRef in candidateIDs
+            set candidateID to (contents of candidateIDRef) as integer
+            try
+                set candidateDocument to path of document of window id candidateID
+                set candidatePath to POSIX path of candidateDocument
+                if candidatePath is targetPath then return candidateID
+            end try
+        end repeat
+    end tell
+    
+    return missing value
+
+launchApplication:
+  shell: |
+    targetArgs={{args}}
+    open -b {{bundleId}} "${targetArgs[@]}"
+
+openNewWindow:
+  appleScript: |
+    tell application id {{bundleId}}
+        set targetPath to {{arg}}
+        if length of targetPath > 0 then
+            try
+                open (POSIX file targetPath)
+            end try
+        else
+            try
+                make new document
+            on error
+                try
+                    make new window
+                end try
+            end try
+        end if
+    end tell
+
