@@ -90,10 +90,10 @@ captureArguments:
 
 寻找与已保存窗口对应的当前窗口。
 
-- `shell` 匹配成功时通过 stdout 返回 JSON 窗口 ID，例如 `12345`。
-- `appleScript` 匹配成功时直接返回窗口 ID；没有匹配时可以返回 `missing value`，也可以不返回值。
+- `shell` 匹配成功时通过 stdout 返回 JSON CG 窗口 ID，例如 `12345`。
+- `appleScript` 匹配成功时直接返回 CG 窗口 ID；没有匹配时可以返回 `missing value`，也可以不返回值。
 - Shell 没有 stdout，或 AppleScript 返回 `missing value`、没有返回值，都表示没有匹配窗口。
-- 返回的窗口 ID 必须来自 `{{candidatesWindowIDs}}`。
+- 返回的窗口 ID 必须是 `{{candidateWindows}}` 中某个窗口对象的 `windowID`。
 
 ### `launchApplication`
 
@@ -119,21 +119,33 @@ openNewWindow: commandN
 
 占位符只替换一次。模板作者不需要处理参数顺序和转义。每个占位符都应作为完整表达式使用，不要再额外添加引号。
 
-| 占位符                    | 可用操作           | 含义                                                     |
-| ------------------------- | ------------------ | -------------------------------------------------------- |
-| `{{bundleId}}`            | 所有操作           | 当前 Bundle ID                                           |
-| `{{appName}}`             | 所有操作           | 当前应用名称                                             |
-| `{{windowID}}`            | `captureArguments` | 当前窗口 ID                                              |
-| `{{pid}}`                 | 所有操作           | 当前进程 ID，可能为空                                    |
-| `{{candidatesWindowIDs}}` | 所有操作           | 候选窗口 ID 列表，会展开为 Shell 数组或 AppleScript 列表 |
-| `{{arg}}`                 | 所有操作           | 第一个非空参数                                           |
-| `{{args}}`                | 所有操作           | Shell 数组或 AppleScript 列表形式的全部参数              |
+| 占位符                      | 可用操作           | 含义                                                            |
+| --------------------------- | ------------------ | --------------------------------------------------------------- |
+| `{{bundleId}}`              | 所有操作           | 当前 Bundle ID                                                  |
+| `{{appName}}`               | 所有操作           | 当前应用名称                                                    |
+| `{{windowInfo}}`            | `captureArguments` | 当前窗口对象，包含 `windowID`、`frame` 和 `appleScriptBounds`  |
+| `{{candidateWindows}}`      | `resolveWindow`    | 候选窗口对象，包含 `windowID`、`frame` 和 `appleScriptBounds`  |
+| `{{pid}}`                   | 所有操作           | 当前进程 ID，可能为空                                           |
+| `{{arg}}`                   | 所有操作           | 第一个非空参数                                                  |
+| `{{args}}`                  | 所有操作           | Shell 数组或 AppleScript 列表形式的全部参数                     |
+
+窗口对象的 JSON 结构如下：
+
+```json
+{
+  "windowID": 123,
+  "frame": { "x": 1, "y": 2, "width": 100, "height": 200 },
+  "appleScriptBounds": [1, 2, 101, 202]
+}
+```
+
+在 AppleScript 中，`{{windowInfo}}` 会展开为 record，`{{candidateWindows}}` 会展开为 record 列表。在 Shell 中，它们分别展开为 JSON 字符串和 JSON 字符串数组。脚本需要窗口几何信息时，可从窗口 record 读取 `appleScriptBounds` 或 `frame`。
 
 Shell 写法：
 
 ```shell
 targetArgs={{args}}
-candidateIDs={{candidatesWindowIDs}}
+candidateWindows={{candidateWindows}}
 open -b {{bundleId}} "${targetArgs[@]}"
 ```
 
@@ -141,10 +153,11 @@ AppleScript 写法：
 
 ```applescript
 set targetURLs to {{args}}
-set candidateIDs to {{candidatesWindowIDs}}
+set targetWindowInfo to {{windowInfo}}
+set candidateWindowInfos to {{candidateWindows}}
 ```
 
-没有参数时，`{{args}}` 在 Shell 中展开为 `()`，在 AppleScript 中展开为 `{}`。`{{candidatesWindowIDs}}` 遵循相同规则。没有参数时，`{{arg}}` 展开为空字符串。
+没有参数时，`{{args}}` 在 Shell 中展开为 `()`，在 AppleScript 中展开为 `{}`。没有候选窗口时，`{{candidateWindows}}` 也遵循相同规则。没有当前窗口时，`{{windowInfo}}` 在 AppleScript 中展开为 `missing value`。没有参数时，`{{arg}}` 展开为空字符串。
 
 ## Default 示例
 
@@ -186,9 +199,11 @@ args: one
 
 captureArguments:
   appleScript: |
+    set targetWindowInfo to {{windowInfo}}
+
     tell application id {{bundleId}}
         try
-            set documentPath to path of document of window id {{windowID}}
+            set documentPath to path of document of window id (windowID of targetWindowInfo)
             return {POSIX path of documentPath}
         on error
             return {}
@@ -198,13 +213,14 @@ captureArguments:
 resolveWindow:
   appleScript: |
     set targetPath to {{arg}}
-    set candidateIDs to {{candidatesWindowIDs}}
+    set candidateWindowInfos to {{candidateWindows}}
 
     if targetPath is "" then return missing value
 
     tell application id {{bundleId}}
-        repeat with candidateIDRef in candidateIDs
-            set candidateID to (contents of candidateIDRef) as integer
+        repeat with candidateWindowInfoRef in candidateWindowInfos
+            set candidateWindowInfo to contents of candidateWindowInfoRef
+            set candidateID to windowID of candidateWindowInfo as integer
             try
                 set candidateDocument to path of document of window id candidateID
                 set candidatePath to POSIX path of candidateDocument
@@ -252,9 +268,11 @@ args: many
 
 captureArguments:
   appleScript: |
+    set targetWindowInfo to {{windowInfo}}
+
     tell application id {{bundleId}}
         set tabURLs to {}
-        repeat with browserTab in tabs of window id {{windowID}}
+        repeat with browserTab in tabs of window id (windowID of targetWindowInfo)
             set tabURL to URL of browserTab
             if tabURL is not missing value then set end of tabURLs to tabURL
         end repeat
@@ -293,11 +311,12 @@ resolveWindow:
 
     if (count of targetHosts) is 0 then return missing value
 
-    set candidateIDs to {{candidatesWindowIDs}}
+    set candidateWindowInfos to {{candidateWindows}}
 
     tell application id {{bundleId}}
-        repeat with candidateIDRef in candidateIDs
-            set candidateID to (contents of candidateIDRef) as integer
+        repeat with candidateWindowInfoRef in candidateWindowInfos
+            set candidateWindowInfo to contents of candidateWindowInfoRef
+            set candidateID to windowID of candidateWindowInfo as integer
             try
                 set candidateWindow to window id candidateID
                 set liveHosts to {}

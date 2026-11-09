@@ -3,9 +3,11 @@ args: one
 
 captureArguments:
   appleScript: |
+    set targetWindowInfo to {{windowInfo}}
+
     tell application id {{bundleId}}
         try
-            set workspaceDocument to document of window id {{windowID}}
+            set workspaceDocument to document of window id (windowID of targetWindowInfo)
             if class of workspaceDocument is not workspace document then return {}
             set workspacePath to path of workspaceDocument
             return {POSIX path of workspacePath}
@@ -17,13 +19,14 @@ captureArguments:
 resolveWindow:
   appleScript: |
     set targetPath to {{arg}}
-    set candidateIDs to {{candidatesWindowIDs}}
+    set candidateWindowInfos to {{candidateWindows}}
     
     if targetPath is "" then return missing value
     
     tell application id {{bundleId}}
-        repeat with candidateIDRef in candidateIDs
-            set candidateID to (contents of candidateIDRef) as integer
+        repeat with candidateWindowInfoRef in candidateWindowInfos
+            set candidateWindowInfo to contents of candidateWindowInfoRef
+            set candidateID to windowID of candidateWindowInfo as integer
             try
                 set workspaceDocument to document of window id candidateID
                 if class of workspaceDocument is workspace document then

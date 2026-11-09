@@ -3,9 +3,11 @@ args: many
 
 captureArguments:
   appleScript: |
+    set targetWindowInfo to {{windowInfo}}
+
     tell application id {{bundleId}}
         set tabURLs to {}
-        repeat with browserTab in tabs of window id {{windowID}}
+        repeat with browserTab in tabs of window id (windowID of targetWindowInfo)
             set tabURL to URL of browserTab
             if tabURL is not missing value then set end of tabURLs to tabURL
         end repeat
@@ -44,11 +46,12 @@ resolveWindow:
     
     if (count of targetHosts) is 0 then return missing value
     
-    set candidateIDs to {{candidatesWindowIDs}}
+    set candidateWindowInfos to {{candidateWindows}}
     
     tell application id {{bundleId}}
-        repeat with candidateIDRef in candidateIDs
-            set candidateID to (contents of candidateIDRef) as integer
+        repeat with candidateWindowInfoRef in candidateWindowInfos
+            set candidateWindowInfo to contents of candidateWindowInfoRef
+            set candidateID to windowID of candidateWindowInfo as integer
             try
                 set candidateWindow to window id candidateID
                 set liveHosts to {}

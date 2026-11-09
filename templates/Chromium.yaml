@@ -25,9 +25,40 @@ args: many
 
 captureArguments:
   appleScript: |
+    set targetWindowInfo to {{windowInfo}}
+    set targetBounds to appleScriptBounds of targetWindowInfo
+
+    on boundsDistance(firstBounds, secondBounds)
+        set totalDistance to 0
+        repeat with boundsIndex from 1 to 4
+            set difference to (item boundsIndex of firstBounds) - (item boundsIndex of secondBounds)
+            if difference < 0 then set difference to 0 - difference
+            set totalDistance to totalDistance + difference
+        end repeat
+        return totalDistance
+    end boundsDistance
+
     tell application id {{bundleId}}
+        set targetWindow to missing value
+        set bestDistance to missing value
+        repeat with candidateWindow in windows
+            try
+                set candidateBounds to bounds of candidateWindow
+                set candidateDistance to my boundsDistance(candidateBounds, targetBounds)
+                if bestDistance is missing value then
+                    set bestDistance to candidateDistance
+                    set targetWindow to contents of candidateWindow
+                else if candidateDistance < bestDistance then
+                    set bestDistance to candidateDistance
+                    set targetWindow to contents of candidateWindow
+                end if
+            end try
+        end repeat
+
+        if targetWindow is missing value then return {}
+
         set tabURLs to {}
-        repeat with browserTab in tabs of window id {{windowID}}
+        repeat with browserTab in tabs of targetWindow
             set tabURL to URL of browserTab
             if tabURL is not missing value then set end of tabURLs to tabURL
         end repeat
@@ -58,6 +89,16 @@ resolveWindow:
         return true
     end containsAll
 
+    on boundsDistance(firstBounds, secondBounds)
+        set totalDistance to 0
+        repeat with boundsIndex from 1 to 4
+            set difference to (item boundsIndex of firstBounds) - (item boundsIndex of secondBounds)
+            if difference < 0 then set difference to 0 - difference
+            set totalDistance to totalDistance + difference
+        end repeat
+        return totalDistance
+    end boundsDistance
+
     set targetHosts to {}
     repeat with targetRef in {{args}}
         set targetHost to my normalizedHost(contents of targetRef)
@@ -66,13 +107,15 @@ resolveWindow:
 
     if (count of targetHosts) is 0 then return missing value
 
-    set candidateIDs to {{candidatesWindowIDs}}
+    set candidateWindowInfos to {{candidateWindows}}
+    if (count of candidateWindowInfos) is 0 then return missing value
+
+    set bestDistance to missing value
+    set matchedWindowID to missing value
 
     tell application id {{bundleId}}
-        repeat with candidateIDRef in candidateIDs
-            set candidateID to (contents of candidateIDRef) as integer
+        repeat with candidateWindow in windows
             try
-                set candidateWindow to window id candidateID
                 set liveHosts to {}
 
                 repeat with browserTab in tabs of candidateWindow
@@ -83,12 +126,26 @@ resolveWindow:
                     end if
                 end repeat
 
-                if my containsAll(targetHosts, liveHosts) then return candidateID
+                if my containsAll(targetHosts, liveHosts) then
+                    set liveWindowBounds to bounds of candidateWindow
+                    repeat with candidateWindowInfoRef in candidateWindowInfos
+                        set candidateWindowInfo to contents of candidateWindowInfoRef
+                        set candidateBounds to appleScriptBounds of candidateWindowInfo
+                        set candidateDistance to my boundsDistance(liveWindowBounds, candidateBounds)
+                        if bestDistance is missing value then
+                            set bestDistance to candidateDistance
+                            set matchedWindowID to windowID of candidateWindowInfo
+                        else if candidateDistance < bestDistance then
+                            set bestDistance to candidateDistance
+                            set matchedWindowID to windowID of candidateWindowInfo
+                        end if
+                    end repeat
+                end if
             end try
         end repeat
     end tell
 
-    return missing value
+    return matchedWindowID
 
 launchApplication:
   appleScript: |

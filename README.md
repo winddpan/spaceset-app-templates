@@ -90,10 +90,10 @@ Reads values such as file paths, URLs, or a terminal working directory. A single
 
 Finds the live window that represents the saved window.
 
-- `shell` writes a matched window ID as JSON, for example `12345`.
-- `appleScript` returns a matched window ID, returns `missing value`, or returns nothing.
+- `shell` writes a matched CG window ID as JSON, for example `12345`.
+- `appleScript` returns a matched CG window ID, returns `missing value`, or returns nothing.
 - No Shell stdout, an AppleScript `missing value`, or no AppleScript return value means that no window was matched.
-- The returned ID must be one of `{{candidatesWindowIDs}}`.
+- The returned ID must be the `windowID` of one of the objects in `{{candidateWindows}}`.
 
 ### `launchApplication`
 
@@ -119,21 +119,33 @@ openNewWindow: commandN
 
 Placeholders are replaced once. Template authors do not need to handle argument order or escaping. Use each placeholder as a complete expression and do not add another pair of quotes.
 
-| Placeholder               | Available in       | Meaning                                                               |
-| ------------------------- | ------------------ | --------------------------------------------------------------------- |
-| `{{bundleId}}`            | All operations     | Current Bundle ID                                                     |
-| `{{appName}}`             | All operations     | Current application name                                              |
-| `{{windowID}}`            | `captureArguments` | Current window ID                                                     |
-| `{{pid}}`                 | All operations     | Current process ID, when available                                    |
-| `{{candidatesWindowIDs}}` | All operations     | Candidate window IDs; it expands to a Shell array or AppleScript list |
-| `{{arg}}`                 | All operations     | First non-empty argument                                              |
-| `{{args}}`                | All operations     | All arguments as a Shell array or AppleScript list                    |
+| Placeholder               | Available in       | Meaning                                                                        |
+| ------------------------- | ------------------ | ------------------------------------------------------------------------------ |
+| `{{bundleId}}`            | All operations     | Current Bundle ID                                                              |
+| `{{appName}}`             | All operations     | Current application name                                                       |
+| `{{windowInfo}}`          | `captureArguments` | Current window object with `windowID`, `frame`, and `appleScriptBounds`         |
+| `{{candidateWindows}}`    | `resolveWindow`    | Candidate window objects with `windowID`, `frame`, and `appleScriptBounds`     |
+| `{{pid}}`                 | All operations     | Current process ID, when available                                             |
+| `{{arg}}`                 | All operations     | First non-empty argument                                                       |
+| `{{args}}`                | All operations     | All arguments as a Shell array or AppleScript list                             |
+
+The window object has this JSON structure:
+
+```json
+{
+  "windowID": 123,
+  "frame": { "x": 1, "y": 2, "width": 100, "height": 200 },
+  "appleScriptBounds": [1, 2, 101, 202]
+}
+```
+
+In AppleScript, `{{windowInfo}}` expands to a record and `{{candidateWindows}}` expands to a list of records. In Shell, they expand to a JSON string and an array of JSON strings, respectively. Read `appleScriptBounds` or `frame` from the window record when a script needs window geometry.
 
 For Shell:
 
 ```shell
 targetArgs={{args}}
-candidateIDs={{candidatesWindowIDs}}
+candidateWindows={{candidateWindows}}
 open -b {{bundleId}} "${targetArgs[@]}"
 ```
 
@@ -141,10 +153,11 @@ For AppleScript:
 
 ```applescript
 set targetURLs to {{args}}
-set candidateIDs to {{candidatesWindowIDs}}
+set targetWindowInfo to {{windowInfo}}
+set candidateWindowInfos to {{candidateWindows}}
 ```
 
-An empty `{{args}}` becomes `()` in Shell and `{}` in AppleScript. An empty `{{candidatesWindowIDs}}` follows the same rule. An empty `{{arg}}` becomes an empty string.
+An empty `{{args}}` becomes `()` in Shell and `{}` in AppleScript. An empty `{{candidateWindows}}` follows the same rule. If there is no current window, `{{windowInfo}}` expands to `missing value` in AppleScript. An empty `{{arg}}` becomes an empty string.
 
 ## Default example
 
@@ -186,9 +199,11 @@ args: one
 
 captureArguments:
   appleScript: |
+    set targetWindowInfo to {{windowInfo}}
+
     tell application id {{bundleId}}
         try
-            set documentPath to path of document of window id {{windowID}}
+            set documentPath to path of document of window id (windowID of targetWindowInfo)
             return {POSIX path of documentPath}
         on error
             return {}
@@ -198,13 +213,14 @@ captureArguments:
 resolveWindow:
   appleScript: |
     set targetPath to {{arg}}
-    set candidateIDs to {{candidatesWindowIDs}}
+    set candidateWindowInfos to {{candidateWindows}}
 
     if targetPath is "" then return missing value
 
     tell application id {{bundleId}}
-        repeat with candidateIDRef in candidateIDs
-            set candidateID to (contents of candidateIDRef) as integer
+        repeat with candidateWindowInfoRef in candidateWindowInfos
+            set candidateWindowInfo to contents of candidateWindowInfoRef
+            set candidateID to windowID of candidateWindowInfo as integer
             try
                 set candidateDocument to path of document of window id candidateID
                 set candidatePath to POSIX path of candidateDocument
@@ -252,9 +268,11 @@ args: many
 
 captureArguments:
   appleScript: |
+    set targetWindowInfo to {{windowInfo}}
+
     tell application id {{bundleId}}
         set tabURLs to {}
-        repeat with browserTab in tabs of window id {{windowID}}
+        repeat with browserTab in tabs of window id (windowID of targetWindowInfo)
             set tabURL to URL of browserTab
             if tabURL is not missing value then set end of tabURLs to tabURL
         end repeat
@@ -293,11 +311,12 @@ resolveWindow:
 
     if (count of targetHosts) is 0 then return missing value
 
-    set candidateIDs to {{candidatesWindowIDs}}
+    set candidateWindowInfos to {{candidateWindows}}
 
     tell application id {{bundleId}}
-        repeat with candidateIDRef in candidateIDs
-            set candidateID to (contents of candidateIDRef) as integer
+        repeat with candidateWindowInfoRef in candidateWindowInfos
+            set candidateWindowInfo to contents of candidateWindowInfoRef
+            set candidateID to windowID of candidateWindowInfo as integer
             try
                 set candidateWindow to window id candidateID
                 set liveHosts to {}

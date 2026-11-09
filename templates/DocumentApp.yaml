@@ -7,9 +7,11 @@ args: one
 
 captureArguments:
   appleScript: |
+    set targetWindowInfo to {{windowInfo}}
+
     tell application id {{bundleId}}
         try
-            set documentPath to path of document of window id {{windowID}}
+            set documentPath to path of document of window id (windowID of targetWindowInfo)
             return {POSIX path of documentPath}
         on error
             return {}
@@ -19,13 +21,14 @@ captureArguments:
 resolveWindow:
   appleScript: |
     set targetPath to {{arg}}
-    set candidateIDs to {{candidatesWindowIDs}}
+    set candidateWindowInfos to {{candidateWindows}}
     
     if targetPath is "" then return missing value
     
     tell application id {{bundleId}}
-        repeat with candidateIDRef in candidateIDs
-            set candidateID to (contents of candidateIDRef) as integer
+        repeat with candidateWindowInfoRef in candidateWindowInfos
+            set candidateWindowInfo to contents of candidateWindowInfoRef
+            set candidateID to windowID of candidateWindowInfo as integer
             try
                 set candidateDocument to path of document of window id candidateID
                 set candidatePath to POSIX path of candidateDocument
