@@ -6,8 +6,6 @@
 
 每个 YAML 文件描述一个应用模板。YAML 文件和其中的脚本共同构成模板行为的真实来源。
 
-`templates/` 中的模板与 Workspace SPM 的 `macos-app/@CorePackages/Workspace/Sources/Workspace/default-templates/` 保持一致。同步模板时，也应更新下方对应示例。
-
 ## 内置模板
 
 | 模板 | 参数策略 | 窗口匹配方式 |

@@ -6,8 +6,6 @@
 
 Each YAML file defines one application template. The file and its embedded scripts are the source of truth for that template.
 
-The templates in `templates/` mirror the Workspace SPM defaults in `macos-app/@CorePackages/Workspace/Sources/Workspace/default-templates/`. Keep the examples below aligned when synchronizing templates.
-
 ## Included templates
 
 | Template | Arguments | Window matching |
