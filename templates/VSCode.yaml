@@ -1,13 +1,76 @@
 bundleIds: [com.microsoft.VSCode]
-args: none
+args: one
 
 captureArguments:
-  appleScript: |
-    return {}
+  shell: |
+    /usr/bin/osascript -l JavaScript - {{windowInfo}} <<'JXA'
+    ObjC.import('Foundation');
+
+    function run(argv) {
+        const target = JSON.parse(argv[0]);
+        const storagePath = ObjC.unwrap($.NSHomeDirectory()) + '/Library/Application Support/Code/User/globalStorage/storage.json';
+        const contents = $.NSString.stringWithContentsOfFileEncodingError(storagePath, $.NSUTF8StringEncoding, null);
+        if (!contents) return '[]';
+        const state = JSON.parse(ObjC.unwrap(contents)).windowsState || {};
+        const windows = (state.openedWindows || []).concat(state.lastActiveWindow || []);
+        const matches = windows.map(function (window) {
+            const frame = window.uiState;
+            if (!frame || ![frame.x, frame.y, frame.width, frame.height].every(Number.isFinite) || frame.width <= 0 || frame.height <= 0) return null;
+            const uri = window.folder || (window.workspaceIdentifier || {}).configURIPath;
+            const url = uri ? $.NSURL.URLWithString(uri) : null;
+            const path = url && url.isFileURL ? ObjC.unwrap(url.path.stringByStandardizingPath.stringByResolvingSymlinksInPath) : null;
+            const bounds = [frame.x, frame.y, frame.x + frame.width, frame.y + frame.height];
+            const distance = bounds.reduce(function (sum, value, index) {
+                return sum + Math.abs(value - target.appleScriptBounds[index]);
+            }, 0);
+            return {path: path, distance: distance};
+        }).filter(Boolean).sort(function (first, second) { return first.distance - second.distance; });
+        if (!matches.length || !matches[0].path) return '[]';
+        const nearest = matches[0];
+        if (matches.some(function (window) { return window.distance === nearest.distance && window.path !== nearest.path; })) return '[]';
+        return JSON.stringify([nearest.path]);
+    }
+    JXA
 
 resolveWindow:
-  appleScript: |
-    return missing value
+  shell: |
+    candidateWindows={{candidateWindows}}
+    /usr/bin/osascript -l JavaScript - {{arg}} "${candidateWindows[@]}" <<'JXA'
+    ObjC.import('Foundation');
+
+    function run(argv) {
+        if (!argv[0] || argv.length < 2) return 'null';
+        const targetPath = ObjC.unwrap($.NSString.stringWithString(argv[0]).stringByExpandingTildeInPath.stringByStandardizingPath.stringByResolvingSymlinksInPath);
+        const storagePath = ObjC.unwrap($.NSHomeDirectory()) + '/Library/Application Support/Code/User/globalStorage/storage.json';
+        const contents = $.NSString.stringWithContentsOfFileEncodingError(storagePath, $.NSUTF8StringEncoding, null);
+        if (!contents) return 'null';
+        const state = JSON.parse(ObjC.unwrap(contents)).windowsState || {};
+        const windows = (state.openedWindows || []).concat(state.lastActiveWindow || []).map(function (window) {
+            const frame = window.uiState;
+            if (!frame || ![frame.x, frame.y, frame.width, frame.height].every(Number.isFinite) || frame.width <= 0 || frame.height <= 0) return null;
+            const uri = window.folder || (window.workspaceIdentifier || {}).configURIPath;
+            const url = uri ? $.NSURL.URLWithString(uri) : null;
+            const path = url && url.isFileURL ? ObjC.unwrap(url.path.stringByStandardizingPath.stringByResolvingSymlinksInPath) : null;
+            return {path: path, bounds: [frame.x, frame.y, frame.x + frame.width, frame.y + frame.height]};
+        }).filter(Boolean);
+        const matches = argv.slice(1).map(function (value) {
+            const candidate = JSON.parse(value);
+            const ranked = windows.map(function (window) {
+                const distance = window.bounds.reduce(function (sum, bound, index) {
+                    return sum + Math.abs(bound - candidate.appleScriptBounds[index]);
+                }, 0);
+                return {path: window.path, distance: distance};
+            }).sort(function (first, second) { return first.distance - second.distance; });
+            if (!ranked.length || ranked[0].path !== targetPath) return null;
+            const nearest = ranked[0];
+            if (ranked.some(function (window) { return window.distance === nearest.distance && window.path !== nearest.path; })) return null;
+            return {windowID: candidate.windowID, distance: nearest.distance};
+        }).filter(Boolean).sort(function (first, second) {
+            return first.distance - second.distance || first.windowID - second.windowID;
+        });
+        return matches.length ? JSON.stringify(matches[0].windowID) : 'null';
+    }
+    JXA
 
 launchApplication:
   shell: |

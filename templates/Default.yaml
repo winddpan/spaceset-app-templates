@@ -7,7 +7,33 @@ captureArguments:
 
 resolveWindow:
   appleScript: |
-    return missing value
+    set targetWindowInfo to {{windowInfo}}
+    if targetWindowInfo is missing value then return missing value
+    set targetBounds to appleScriptBounds of targetWindowInfo
+    set candidateWindowInfos to {{candidateWindows}}
+    set bestDistance to missing value
+    set matchedWindowID to missing value
+
+    repeat with candidateWindowInfoRef in candidateWindowInfos
+        set candidateWindowInfo to contents of candidateWindowInfoRef
+        set candidateBounds to appleScriptBounds of candidateWindowInfo
+        set candidateID to windowID of candidateWindowInfo
+        set candidateDistance to 0
+        repeat with boundsIndex from 1 to 4
+            set difference to (item boundsIndex of candidateBounds) - (item boundsIndex of targetBounds)
+            if difference < 0 then set difference to 0 - difference
+            set candidateDistance to candidateDistance + difference
+        end repeat
+        if bestDistance is missing value then
+            set bestDistance to candidateDistance
+            set matchedWindowID to candidateID
+        else if candidateDistance < bestDistance or (candidateDistance is bestDistance and candidateID < matchedWindowID) then
+            set bestDistance to candidateDistance
+            set matchedWindowID to candidateID
+        end if
+    end repeat
+
+    return matchedWindowID
 
 launchApplication:
   shell: |

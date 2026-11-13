@@ -52,5 +52,6 @@ openNewWindow:
         end if
         set toolbar visible of newWindow to true
         activate
+        return id of newWindow
     end tell
 

@@ -53,13 +53,13 @@ openNewWindow:
                 open (POSIX file targetPath)
             end try
         else
-            try
-                make new document
-            on error
-                try
-                    make new window
-                end try
-            end try
+            set windowCount to count of windows
+            repeat with i from 1 to windowCount
+                set windowInfo to (get properties of window i)
+                if document of windowInfo is not missing value then
+                    return id of windowInfo
+                end if
+            end repeat
         end if
     end tell
 

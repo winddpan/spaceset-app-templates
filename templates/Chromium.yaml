@@ -184,14 +184,13 @@ openNewWindow:
   appleScript: |
     tell application id {{bundleId}}
         activate
-        make new window
+        set targetWindow to make new window
         delay 1
         repeat with attempt from 1 to 30
             if (count of windows) > 0 then exit repeat
             delay 0.1
         end repeat
         if (count of windows) = 0 then error "Browser did not open a window." number -1728
-        set targetWindow to front window
         set existingURLs to URL of every tab of targetWindow
         set missingURLs to my missingTabURLs({{args}}, existingURLs)
         repeat with targetURL in missingURLs

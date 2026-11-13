@@ -6,6 +6,25 @@
 
 Each YAML file defines one application template. The file and its embedded scripts are the source of truth for that template.
 
+The templates in `templates/` mirror the Workspace SPM defaults in `macos-app/@CorePackages/Workspace/Sources/Workspace/default-templates/`. Keep the examples below aligned when synchronizing templates.
+
+## Included templates
+
+| Template | Arguments | Window matching |
+| -------- | --------- | --------------- |
+| [Default](templates/Default.yaml) | `none` | Closest bounds to the restore target; lower window ID breaks ties |
+| [ChatGPT](templates/ChatGPT.yaml) | `none` | Same bounds matching as Default, for `com.openai.codex` |
+| [DocumentApp](templates/DocumentApp.yaml) | `one` | Document file path |
+| [Finder](templates/Finder.yaml) | `one` | Folder path |
+| [Ghostty](templates/Ghostty.yaml) | `one` | Working directory from `documentPath`, then closest target bounds |
+| [Terminal](templates/Terminal.yaml) | `one` | Working directory from `documentPath`, then closest target bounds |
+| [VSCode](templates/VSCode.yaml) | `one` | Folder or workspace file path from VS Code's saved window state, associated by bounds; ambiguous paths are rejected |
+| [Xcode](templates/Xcode.yaml) | `one` | Workspace document path |
+| [Safari](templates/Safari.yaml) | `many` | First candidate containing all saved Tab hosts |
+| [Chromium](templates/Chromium.yaml) | `many` | Saved Tab hosts, with bounds used to associate browser windows with candidates |
+
+Terminal and Ghostty capture a working directory for matching existing windows. Their launch and new-window scripts currently open the default terminal session without passing that directory. Xcode opens the saved path when present; without a path, its `openNewWindow` script returns an existing document window ID when available.
+
 ## File naming
 
 Use the template name as the filename:
@@ -48,7 +67,7 @@ openNewWindow:
 | `bundleIds`         | Yes      | Bundle IDs or regular-expression patterns                |
 | `args`              | No       | Argument policy; defaults to `none`                      |
 | `captureArguments`  | No       | Reads arguments from the current window                  |
-| `resolveWindow`     | No       | Finds an existing window for the saved arguments         |
+| `resolveWindow`     | No       | Finds an existing window using arguments or target geometry |
 | `launchApplication` | Yes      | Starts the application when it is not running            |
 | `openNewWindow`     | Yes      | Creates a window when the application is already running |
 
@@ -95,13 +114,17 @@ Finds the live window that represents the saved window.
 - No Shell stdout, an AppleScript `missing value`, or no AppleScript return value means that no window was matched.
 - The returned ID must be the `windowID` of one of the objects in `{{candidateWindows}}`.
 
+`{{windowInfo}}` provides the restore target's geometry without a live `windowID`. Templates can use it to choose the closest candidate when no argument match is available. Default and ChatGPT minimize the sum of absolute differences between the four bounds values, breaking ties by lower window ID. Terminal and Ghostty first try a normalized, case-sensitive `documentPath` match, then use the same bounds rule.
+
 ### `launchApplication`
 
-Runs when the application is not running. The script result is ignored. A successful Shell exit or a successful AppleScript execution means that the launch command completed.
+Runs to launch the application. A successful Shell exit or a successful AppleScript execution means that the command completed; Spaceset then waits for a usable window.
+
+The script may return the window's CG window ID: write it as JSON to Shell stdout or return it as an AppleScript integer. Spaceset uses that ID to identify the resulting window. If no ID is returned, Spaceset discovers the window from application focus and window inventory changes.
 
 ### `openNewWindow`
 
-Runs when the application is already running. It follows the same success rules as `launchApplication`.
+Runs to open a window in a running application. It follows the same completion and optional window ID rules as `launchApplication`. Finder and Safari explicitly return the window they create.
 
 It may also use one of these reserved values:
 
@@ -113,7 +136,7 @@ openNewWindow: reuseExisting
 openNewWindow: commandN
 ```
 
-`reuseExisting` reuses an existing window. `commandN` requests a new window with Command-N.
+`reuseExisting` lets the restore planner assign an existing window; it does not execute a new-window command. `commandN` requests a new window with Command-N.
 
 ## Placeholders
 
@@ -123,23 +146,28 @@ Placeholders are replaced once. Template authors do not need to handle argument 
 | ------------------------- | ------------------ | ------------------------------------------------------------------------------ |
 | `{{bundleId}}`            | All operations     | Current Bundle ID                                                              |
 | `{{appName}}`             | All operations     | Current application name                                                       |
-| `{{windowInfo}}`          | `captureArguments` | Current window object with `windowID`, `frame`, and `appleScriptBounds`         |
-| `{{candidateWindows}}`    | `resolveWindow`    | Candidate window objects with `windowID`, `frame`, and `appleScriptBounds`     |
+| `{{windowInfo}}`          | `captureArguments`, `resolveWindow` | Current live window when capturing; target geometry when resolving |
+| `{{candidateWindows}}`    | `resolveWindow`    | Candidate live window objects with IDs, geometry, and optional document paths |
 | `{{pid}}`                 | All operations     | Current process ID, when available                                             |
 | `{{arg}}`                 | All operations     | First non-empty argument                                                       |
 | `{{args}}`                | All operations     | All arguments as a Shell array or AppleScript list                             |
 
-The window object has this JSON structure:
+Live window objects have this JSON structure; `documentPath` is optional:
 
 ```json
 {
   "windowID": 123,
   "frame": { "x": 1, "y": 2, "width": 100, "height": 200 },
-  "appleScriptBounds": [1, 2, 101, 202]
+  "appleScriptBounds": [1, 2, 101, 202],
+  "documentPath": "/Users/me/project"
 }
 ```
 
-In AppleScript, `{{windowInfo}}` expands to a record and `{{candidateWindows}}` expands to a list of records. In Shell, they expand to a JSON string and an array of JSON strings, respectively. Read `appleScriptBounds` or `frame` from the window record when a script needs window geometry.
+For `resolveWindow`, `{{windowInfo}}` contains only `frame` and `appleScriptBounds` for the restore target. It has no `windowID` or document path. The objects in `{{candidateWindows}}` describe live windows and include `windowID`.
+
+`documentPath`, when available, is an absolute file or working-directory path from the window's `AXDocument` attribute, with path components standardized and symlinks resolved. The current runtime reads this attribute for DocumentApp, Terminal, and Ghostty templates. Unavailable paths are omitted from Shell JSON and become `missing value` in AppleScript records.
+
+In AppleScript, `{{windowInfo}}` expands to a record and `{{candidateWindows}}` expands to a list of records. In Shell, they expand to a JSON string and an array of JSON strings, respectively. Read `appleScriptBounds` or `frame` from the window record when a script needs window geometry. `appleScriptBounds` contains rounded integer values in `[left, top, right, bottom]` order.
 
 For Shell:
 
@@ -173,7 +201,33 @@ captureArguments:
 
 resolveWindow:
   appleScript: |
-    return missing value
+    set targetWindowInfo to {{windowInfo}}
+    if targetWindowInfo is missing value then return missing value
+    set targetBounds to appleScriptBounds of targetWindowInfo
+    set candidateWindowInfos to {{candidateWindows}}
+    set bestDistance to missing value
+    set matchedWindowID to missing value
+
+    repeat with candidateWindowInfoRef in candidateWindowInfos
+        set candidateWindowInfo to contents of candidateWindowInfoRef
+        set candidateBounds to appleScriptBounds of candidateWindowInfo
+        set candidateID to windowID of candidateWindowInfo
+        set candidateDistance to 0
+        repeat with boundsIndex from 1 to 4
+            set difference to (item boundsIndex of candidateBounds) - (item boundsIndex of targetBounds)
+            if difference < 0 then set difference to 0 - difference
+            set candidateDistance to candidateDistance + difference
+        end repeat
+        if bestDistance is missing value then
+            set bestDistance to candidateDistance
+            set matchedWindowID to candidateID
+        else if candidateDistance < bestDistance or (candidateDistance is bestDistance and candidateID < matchedWindowID) then
+            set bestDistance to candidateDistance
+            set matchedWindowID to candidateID
+        end if
+    end repeat
+
+    return matchedWindowID
 
 launchApplication:
   shell: |
@@ -183,7 +237,7 @@ launchApplication:
 openNewWindow: reuseExisting
 ```
 
-`Default.yaml` is the lowest-priority fallback template. A template with an exact Bundle ID always wins over this template.
+`Default.yaml` is the lowest-priority fallback template. A template with an exact Bundle ID always wins over this template. It matches the candidate closest to the restore target's bounds and reuses existing windows.
 
 ## Document App example
 
@@ -341,19 +395,20 @@ launchApplication:
     tell application id {{bundleId}}
         launch
         set targetURLs to {{args}}
-
         if (count of targetURLs) > 0 then
             make new document with properties {URL:(item 1 of targetURLs)}
-            tell front window
+            set targetWindow to front window
+            tell targetWindow
                 repeat with tabIndex from 2 to count of targetURLs
                     make new tab at end of tabs with properties {URL:(item tabIndex of targetURLs)}
                 end repeat
             end tell
         else
             make new document
+            set targetWindow to front window
         end if
-
         activate
+        return id of targetWindow
     end tell
 
 openNewWindow:
@@ -363,15 +418,17 @@ openNewWindow:
         set targetURLs to {{args}}
         if (count of targetURLs) > 0 then
             make new document with properties {URL:(item 1 of targetURLs)}
-            tell front window
+            set targetWindow to front window
+            tell targetWindow
                 repeat with tabIndex from 2 to count of targetURLs
                     make new tab at end of tabs with properties {URL:(item tabIndex of targetURLs)}
                 end repeat
             end tell
         else
             make new document
+            set targetWindow to front window
         end if
-
         activate
+        return id of targetWindow
     end tell
 ```

@@ -6,6 +6,25 @@
 
 每个 YAML 文件描述一个应用模板。YAML 文件和其中的脚本共同构成模板行为的真实来源。
 
+`templates/` 中的模板与 Workspace SPM 的 `macos-app/@CorePackages/Workspace/Sources/Workspace/default-templates/` 保持一致。同步模板时，也应更新下方对应示例。
+
+## 内置模板
+
+| 模板 | 参数策略 | 窗口匹配方式 |
+| ---- | -------- | ------------ |
+| [Default](templates/Default.yaml) | `none` | 选择边界最接近恢复目标的窗口，距离相同时选择较小的窗口 ID |
+| [ChatGPT](templates/ChatGPT.yaml) | `none` | 为 `com.openai.codex` 使用与 Default 相同的边界匹配方式 |
+| [DocumentApp](templates/DocumentApp.yaml) | `one` | 文档文件路径 |
+| [Finder](templates/Finder.yaml) | `one` | 文件夹路径 |
+| [Ghostty](templates/Ghostty.yaml) | `one` | 优先匹配 `documentPath` 中的工作目录，否则匹配目标边界 |
+| [Terminal](templates/Terminal.yaml) | `one` | 优先匹配 `documentPath` 中的工作目录，否则匹配目标边界 |
+| [VSCode](templates/VSCode.yaml) | `one` | 从 VS Code 保存的窗口状态读取文件夹或工作区文件路径，通过边界关联窗口；路径存在歧义时不匹配 |
+| [Xcode](templates/Xcode.yaml) | `one` | 工作区文档路径 |
+| [Safari](templates/Safari.yaml) | `many` | 第一个包含全部已保存 Tab 域名的候选窗口 |
+| [Chromium](templates/Chromium.yaml) | `many` | 匹配已保存的 Tab 域名，通过边界关联浏览器窗口与候选窗口 |
+
+Terminal 和 Ghostty 保存工作目录用于匹配现有窗口，当前启动和新建窗口脚本只打开默认终端会话，不传入该目录。Xcode 有已保存路径时打开该路径；没有路径时，`openNewWindow` 脚本会在存在文档窗口的情况下返回其窗口 ID。
+
 ## 文件名
 
 文件名使用模板名称：
@@ -48,7 +67,7 @@ openNewWindow:
 | `bundleIds`         | 是   | 使用此模板的 Bundle ID 或正则表达式模式 |
 | `args`              | 否   | 参数策略，默认值为 `none`               |
 | `captureArguments`  | 否   | 读取当前窗口的参数                      |
-| `resolveWindow`     | 否   | 根据已保存的参数寻找现有窗口            |
+| `resolveWindow`     | 否   | 根据参数或目标几何信息寻找现有窗口      |
 | `launchApplication` | 是   | 应用未运行时启动应用                    |
 | `openNewWindow`     | 是   | 应用已运行时创建新窗口                  |
 
@@ -95,13 +114,17 @@ captureArguments:
 - Shell 没有 stdout，或 AppleScript 返回 `missing value`、没有返回值，都表示没有匹配窗口。
 - 返回的窗口 ID 必须是 `{{candidateWindows}}` 中某个窗口对象的 `windowID`。
 
+`{{windowInfo}}` 提供恢复目标的几何信息，不包含当前窗口的 `windowID`。没有参数匹配时，模板可以据此选择最接近目标的候选窗口。Default 和 ChatGPT 对四个边界值的绝对差求和，选择总距离最小的窗口；距离相同时选择较小的窗口 ID。Terminal 和 Ghostty 优先对规范化后的 `documentPath` 进行区分大小写的匹配，没有匹配时再使用相同的边界规则。
+
 ### `launchApplication`
 
-应用未运行时执行。脚本返回值不会作为结果使用。Shell 成功退出或 AppleScript 正常结束，都表示启动命令执行完成。
+用于启动应用。Shell 成功退出或 AppleScript 正常结束，表示命令执行完成；随后 Spaceset 会等待可用窗口。
+
+脚本可以返回窗口的 CG 窗口 ID：Shell 通过 stdout 输出 JSON 窗口 ID，AppleScript 返回整数。Spaceset 会使用该 ID 确认命令对应的窗口。没有返回 ID 时，Spaceset 会通过应用焦点和窗口清单变化发现窗口。
 
 ### `openNewWindow`
 
-应用已运行时执行，成功规则与 `launchApplication` 相同。
+用于在运行中的应用内打开窗口，命令完成和可选窗口 ID 的规则与 `launchApplication` 相同。Finder 和 Safari 会显式返回其创建的窗口 ID。
 
 也可以使用以下保留值：
 
@@ -113,7 +136,7 @@ openNewWindow: reuseExisting
 openNewWindow: commandN
 ```
 
-`reuseExisting` 表示复用已有窗口，`commandN` 表示请求创建一个新窗口。
+`reuseExisting` 由恢复规划器分配已有窗口，不执行新建窗口命令。`commandN` 表示通过 Command-N 请求创建新窗口。
 
 ## 占位符
 
@@ -123,23 +146,28 @@ openNewWindow: commandN
 | --------------------------- | ------------------ | --------------------------------------------------------------- |
 | `{{bundleId}}`              | 所有操作           | 当前 Bundle ID                                                  |
 | `{{appName}}`               | 所有操作           | 当前应用名称                                                    |
-| `{{windowInfo}}`            | `captureArguments` | 当前窗口对象，包含 `windowID`、`frame` 和 `appleScriptBounds`  |
-| `{{candidateWindows}}`      | `resolveWindow`    | 候选窗口对象，包含 `windowID`、`frame` 和 `appleScriptBounds`  |
+| `{{windowInfo}}`            | `captureArguments`、`resolveWindow` | 保存参数时为当前窗口对象，匹配窗口时为恢复目标的几何信息 |
+| `{{candidateWindows}}`      | `resolveWindow`    | 当前候选窗口对象，包含窗口 ID、几何信息及可选文档路径         |
 | `{{pid}}`                   | 所有操作           | 当前进程 ID，可能为空                                           |
 | `{{arg}}`                   | 所有操作           | 第一个非空参数                                                  |
 | `{{args}}`                  | 所有操作           | Shell 数组或 AppleScript 列表形式的全部参数                     |
 
-窗口对象的 JSON 结构如下：
+当前窗口对象的 JSON 结构如下，其中 `documentPath` 为可选字段：
 
 ```json
 {
   "windowID": 123,
   "frame": { "x": 1, "y": 2, "width": 100, "height": 200 },
-  "appleScriptBounds": [1, 2, 101, 202]
+  "appleScriptBounds": [1, 2, 101, 202],
+  "documentPath": "/Users/me/project"
 }
 ```
 
-在 AppleScript 中，`{{windowInfo}}` 会展开为 record，`{{candidateWindows}}` 会展开为 record 列表。在 Shell 中，它们分别展开为 JSON 字符串和 JSON 字符串数组。脚本需要窗口几何信息时，可从窗口 record 读取 `appleScriptBounds` 或 `frame`。
+在 `resolveWindow` 中，`{{windowInfo}}` 只包含恢复目标的 `frame` 和 `appleScriptBounds`，不包含 `windowID` 或文档路径。`{{candidateWindows}}` 中的对象描述当前窗口，包含 `windowID`。
+
+`documentPath` 是从窗口 `AXDocument` 属性获取的文件或工作目录的绝对路径，已经过路径规范化并解析符号链接。当前运行时为 DocumentApp、Terminal 和 Ghostty 模板读取此属性。路径不可用时，Shell JSON 会省略该字段，AppleScript record 中该字段为 `missing value`。
+
+在 AppleScript 中，`{{windowInfo}}` 会展开为 record，`{{candidateWindows}}` 会展开为 record 列表。在 Shell 中，它们分别展开为 JSON 字符串和 JSON 字符串数组。脚本需要窗口几何信息时，可从窗口 record 读取 `appleScriptBounds` 或 `frame`。`appleScriptBounds` 按 `[左, 上, 右, 下]` 排列，使用四舍五入后的整数坐标。
 
 Shell 写法：
 
@@ -173,7 +201,33 @@ captureArguments:
 
 resolveWindow:
   appleScript: |
-    return missing value
+    set targetWindowInfo to {{windowInfo}}
+    if targetWindowInfo is missing value then return missing value
+    set targetBounds to appleScriptBounds of targetWindowInfo
+    set candidateWindowInfos to {{candidateWindows}}
+    set bestDistance to missing value
+    set matchedWindowID to missing value
+
+    repeat with candidateWindowInfoRef in candidateWindowInfos
+        set candidateWindowInfo to contents of candidateWindowInfoRef
+        set candidateBounds to appleScriptBounds of candidateWindowInfo
+        set candidateID to windowID of candidateWindowInfo
+        set candidateDistance to 0
+        repeat with boundsIndex from 1 to 4
+            set difference to (item boundsIndex of candidateBounds) - (item boundsIndex of targetBounds)
+            if difference < 0 then set difference to 0 - difference
+            set candidateDistance to candidateDistance + difference
+        end repeat
+        if bestDistance is missing value then
+            set bestDistance to candidateDistance
+            set matchedWindowID to candidateID
+        else if candidateDistance < bestDistance or (candidateDistance is bestDistance and candidateID < matchedWindowID) then
+            set bestDistance to candidateDistance
+            set matchedWindowID to candidateID
+        end if
+    end repeat
+
+    return matchedWindowID
 
 launchApplication:
   shell: |
@@ -183,7 +237,7 @@ launchApplication:
 openNewWindow: reuseExisting
 ```
 
-`Default.yaml` 是优先级最低的 fallback 模板。存在精确 Bundle ID 模板时，优先使用精确匹配的模板。
+`Default.yaml` 是优先级最低的 fallback 模板。存在精确 Bundle ID 模板时，优先使用精确匹配的模板。它会匹配边界最接近恢复目标的候选窗口，并复用已有窗口。
 
 ## Document App 示例
 
@@ -341,19 +395,20 @@ launchApplication:
     tell application id {{bundleId}}
         launch
         set targetURLs to {{args}}
-
         if (count of targetURLs) > 0 then
             make new document with properties {URL:(item 1 of targetURLs)}
-            tell front window
+            set targetWindow to front window
+            tell targetWindow
                 repeat with tabIndex from 2 to count of targetURLs
                     make new tab at end of tabs with properties {URL:(item tabIndex of targetURLs)}
                 end repeat
             end tell
         else
             make new document
+            set targetWindow to front window
         end if
-
         activate
+        return id of targetWindow
     end tell
 
 openNewWindow:
@@ -363,15 +418,17 @@ openNewWindow:
         set targetURLs to {{args}}
         if (count of targetURLs) > 0 then
             make new document with properties {URL:(item 1 of targetURLs)}
-            tell front window
+            set targetWindow to front window
+            tell targetWindow
                 repeat with tabIndex from 2 to count of targetURLs
                     make new tab at end of tabs with properties {URL:(item tabIndex of targetURLs)}
                 end repeat
             end tell
         else
             make new document
+            set targetWindow to front window
         end if
-
         activate
+        return id of targetWindow
     end tell
 ```
